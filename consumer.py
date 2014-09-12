@@ -7,13 +7,16 @@ import requests
 import time
 from scrapi_tools import lint
 from scrapi_tools.document import RawDocument, NormalizedDocument
+import json
+import logging
+logging.basicConfig(level=logging.ERROR)
+
+logger = logging.getLogger(__name__)
 
 TODAY = date.today()
 NAME = 'pubmedcentralpmc'
 
-NAMESPACES = {#'dc': 'http://purl.org/dc/elements/1.1/', 
-            #'oai_dc': 'http://www.openarchives.org/OAI/2.0/',
-            'ns0': 'http://www.openarchives.org/OAI/2.0/',
+NAMESPACES = {'ns0': 'http://www.openarchives.org/OAI/2.0/',
             'pmc': 'http://dtd.nlm.nih.gov/2.0/xsd/archivearticle'}
 
 def consume(days_back=1):
@@ -54,6 +57,7 @@ def normalize(raw_doc, timestamp):
 
     raw_doc = raw_doc.get('doc')
     doc = etree.XML(raw_doc)
+
     
     titles = doc.xpath("//pmc:title-group/pmc:article-title/node()", namespaces = NAMESPACES)
     title = ""
@@ -74,10 +78,11 @@ def normalize(raw_doc, timestamp):
         if isinstance(dsc, etree._Element):
             for element in dsc.getiterator():
                 d = element.text
-        description += d
+        if d is not None:
+            description += d
     #description.replace('\xe2','\n')
     
-    
+
     url = ''
     service_id = doc.xpath("//ns0:header/ns0:identifier/node()", namespaces=NAMESPACES)[0]
     doi = doc.xpath("//pmc:article-id[@pub-id-type='doi']/node()", namespaces=NAMESPACES)
@@ -100,32 +105,6 @@ def normalize(raw_doc, timestamp):
     ids = {'url':url, 'doi':doi, 'service_id':service_id}
     #print(ids)
 
-    '''
-    surname = doc.xpath('//pmc:contrib/pmc:name/pmc:surname/node()', namespaces=NAMESPACES)
-    given_names = doc.xpath('//pmc:contrib/pmc:name/pmc:given-names/node()', namespaces=NAMESPACES)
-    full_names = zip(surname, given_names)
-    contributors = []
-    contributors += [', '.join(names) for names in full_names]
-    
-    email_list = []
-    email = doc.xpath('//pmc:contrib/pmc:email/node()', namespaces=NAMESPACES)
-
-    if len(email) == len(contributors):
-        email_list = email
-    else:
-        email_list.append('')
-    
-    contributors = zip(contributors, email_list)
-
-    contributor_list = []
-    for contributor in contributors:
-        if type(contributor) == tuple:
-            contributor_list.append({'full_name': contributor[0], 'email':contributor[1]})
-        else:
-            contributor_list.append({'full_name': contributor, 'email':''})
-
-    contributor_list = contributor_list or [{'full_name': 'no contributors', 'email': ''}]
-    '''
     contributor_list = []
     contributors = doc.xpath('//pmc:contrib-group/node()', namespaces=NAMESPACES)
     for contrib in contributors:
@@ -140,7 +119,9 @@ def normalize(raw_doc, timestamp):
                     given_name = element.text
                 elif element.tag.find("email") > -1:
                     email = element.text
-            if (surname != ""):
+            if (surname is not None and surname != ""):
+                if (given_name is None):
+                    given_name = ''
                 fullname = surname + ", " + given_name
                 contributor_list.append({'full_name': fullname, 'email': email})
     #print(contributor_list)
@@ -152,11 +133,14 @@ def normalize(raw_doc, timestamp):
         if isinstance(tag, etree._Element) == False and tag.find('\n') == -1:
             tags.append(tag)
     year = doc.xpath("//pmc:pub-date[@pub-type='epub']/pmc:year/node()", namespaces=NAMESPACES) or \
-            doc.xpath("//pmc:pub-date[@pub-type='ppub']/pmc:year/node()", namespaces=NAMESPACES)
+            doc.xpath("//pmc:pub-date[@pub-type='ppub']/pmc:year/node()", namespaces=NAMESPACES) or \
+            ['']
     month = doc.xpath("//pmc:pub-date[@pub-type='epub']/pmc:month/node()", namespaces=NAMESPACES) or \
-            doc.xpath("//pmc:pub-date[@pub-type='ppub']/pmc:month/node()", namespaces=NAMESPACES)
+            doc.xpath("//pmc:pub-date[@pub-type='ppub']/pmc:month/node()", namespaces=NAMESPACES) or \
+            ['']
     day = doc.xpath("//pmc:pub-date[@pub-type='epub']/pmc:day/node()", namespaces=NAMESPACES) or \
-            doc.xpath("//pmc:pub-date[@pub-type='ppub']/pmc:day/node()", namespaces=NAMESPACES)
+            doc.xpath("//pmc:pub-date[@pub-type='ppub']/pmc:day/node()", namespaces=NAMESPACES) or \
+            ['']
     date_created = '{year}-{month}-{day}'.format(year=year[0], month=month[0], day=day[0])
     
     #print('title: ' + title[0])
@@ -210,8 +194,9 @@ def normalize(raw_doc, timestamp):
             'date_created': date_created,
             'timestamp': str(timestamp)
     }
+    #print(json.dumps(normalized_dict, sort_keys=True, indent=4, separators=(',', ': ')))
     return NormalizedDocument(normalized_dict)
     
 
 if __name__ == '__main__':
-    lint(consume, normalize) 
+    logger.error(lint(consume, normalize))
